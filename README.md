@@ -1,0 +1,1 @@
+# SIH_26162-Industrial-Thermal-Anomaly-Intelligence
