@@ -1,0 +1,3 @@
+facility_id,name,facility_type,latitude,longitude,source
+JAM_RIL_REF,Reliance Refinery,petroleum_refinery,22.33679,69.86658,OSM
+JAM_RIL_CHEM,Reliance Jamnagar Chemical Plant,chemical_plant,22.334148,69.849610,Global Energy Monitor

@@ -1,0 +1,167 @@
+.investigation-section {
+  margin-top: 24px;
+
+  padding: 20px;
+
+  background: #0f172a;
+
+  border: 1px solid #243044;
+  border-radius: 12px;
+}
+
+.investigation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 16px;
+}
+
+.investigation-header h2 {
+  margin: 0;
+
+  font-size: 20px;
+}
+
+.investigation-header p {
+  margin: 5px 0 0;
+
+  color: #94a3b8;
+
+  font-size: 13px;
+}
+
+.queue-count {
+  padding: 6px 10px;
+
+  color: #cbd5e1;
+
+  background: #172033;
+
+  border: 1px solid #2a3950;
+
+  border-radius: 6px;
+
+  font-size: 12px;
+}
+
+.queue-table-wrapper {
+  overflow-x: auto;
+}
+
+.queue-table {
+  width: 100%;
+
+  border-collapse: collapse;
+
+  font-size: 13px;
+}
+
+.queue-table th {
+  padding: 11px 12px;
+
+  color: #64748b;
+
+  text-align: left;
+
+  font-size: 10px;
+
+  letter-spacing: 0.07em;
+
+  border-bottom: 1px solid #243044;
+}
+
+.queue-table td {
+  padding: 13px 12px;
+
+  border-bottom: 1px solid #1e293b;
+
+  color: #cbd5e1;
+}
+
+.queue-table tbody tr {
+  cursor: pointer;
+
+  transition: background 0.15s ease;
+}
+
+.queue-table tbody tr:hover {
+  background: #172033;
+}
+
+.priority-badge,
+.behavior-badge {
+  display: inline-flex;
+
+  align-items: center;
+
+  padding: 4px 8px;
+
+  border-radius: 5px;
+
+  font-size: 10px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.04em;
+}
+
+.priority-high {
+  color: #fecaca;
+
+  background: rgba(239, 68, 68, 0.15);
+
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.priority-medium {
+  color: #fed7aa;
+
+  background: rgba(245, 158, 11, 0.15);
+
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.behavior-unusual {
+  color: #fecaca;
+
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.behavior-watch {
+  color: #fed7aa;
+
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.facility-name {
+  color: #f8fafc;
+
+  font-weight: 600;
+}
+
+.facility-source {
+  margin-top: 3px;
+
+  color: #64748b;
+
+  font-size: 11px;
+}
+
+.score-cell {
+  font-weight: 700;
+
+  color: #f8fafc !important;
+}
+
+.queue-empty {
+  padding: 30px;
+
+  color: #64748b;
+
+  text-align: center;
+
+  border: 1px dashed #334155;
+
+  border-radius: 8px;
+}

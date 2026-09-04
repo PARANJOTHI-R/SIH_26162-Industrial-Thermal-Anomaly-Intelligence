@@ -1,0 +1,4 @@
+/.venv
+/FIRMS/backend/.venv
+/FIRMS/backend/__pycache__
+/frontend/node_modules

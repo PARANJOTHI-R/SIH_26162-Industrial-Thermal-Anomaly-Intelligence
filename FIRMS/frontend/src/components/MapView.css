@@ -1,0 +1,129 @@
+.map-container {
+  position: relative;
+  width: 100%;
+  height: 650px;
+  min-height: 650px;
+  overflow: hidden;
+
+  border: 1px solid #243044;
+  border-radius: 12px;
+
+  background: #0b111b;
+}
+
+.maplibre-map {
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  width: 100%;
+  height: 100%;
+}
+
+/* -------------------------------------------------------
+   Legend
+------------------------------------------------------- */
+
+.map-legend {
+  position: absolute;
+
+  left: 16px;
+  bottom: 16px;
+
+  z-index: 20;
+
+  width: 220px;
+
+  padding: 14px;
+
+  box-sizing: border-box;
+
+  background: rgba(15, 23, 42, 0.95);
+
+  color: #ffffff;
+
+  border: 1px solid rgba(255, 255, 255, 0.16);
+
+  border-radius: 10px;
+
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35);
+
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif;
+
+  font-size: 12px;
+}
+
+.map-legend-title {
+  margin-bottom: 10px;
+
+  color: #cbd5e1;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+}
+
+.legend-item {
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 7px 0;
+
+  color: #e2e8f0;
+}
+
+.legend-dot {
+  display: inline-block;
+
+  width: 11px;
+  height: 11px;
+
+  flex: 0 0 11px;
+
+  border-radius: 50%;
+
+  border: 1px solid #ffffff;
+}
+
+.legend-high {
+  background: #ff1744;
+}
+
+.legend-medium {
+  background: #ff9800;
+}
+
+.legend-industrial {
+  background: #ef4444;
+}
+
+.legend-agricultural {
+  background: #f59e0b;
+}
+
+.legend-natural {
+  background: #22c55e;
+}
+
+.legend-note {
+  margin-top: 10px;
+
+  padding-top: 9px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+
+  color: #94a3b8;
+
+  font-size: 11px;
+
+  line-height: 1.4;
+}
