@@ -67,7 +67,7 @@ function MapView({
   // --------------------------------------------------------
   useEffect(() => {
     if (!map.current || !center) return;
-    map.current.jumpTo({ center: center, zoom: 9 });
+    map.current.flyTo({ center: center, zoom: 9, essential: true, duration: 1500 });
   }, [center]);
 
   // --------------------------------------------------------
@@ -308,6 +308,10 @@ function MapView({
               frequency_score:
                 item.frequency_score ??
                 null,
+
+              region_id:
+                item.region_id ??
+                null,
             },
           };
         }
@@ -469,27 +473,6 @@ function MapView({
         },
       });
 
-      // ----------------------------------------------
-      // Fit map to observations
-      // ----------------------------------------------
-
-      const bounds =
-        new maplibregl.LngLatBounds();
-
-      validObservations.forEach((item) => {
-        bounds.extend([
-          Number(item.longitude),
-          Number(item.latitude),
-        ]);
-      });
-
-      if (!bounds.isEmpty()) {
-        currentMap.fitBounds(bounds, {
-          padding: 50,
-          maxZoom: 11,
-          duration: 800,
-        });
-      }
 
       // ----------------------------------------------
       // Click

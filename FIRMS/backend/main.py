@@ -823,42 +823,38 @@ def get_thermal_events(
     - FRP / P95 ratio
     - P90/P95 flags
     """
-    
-    r_data = region_store.get(region, {})
-    thermal_df = r_data.get("thermal_df", pd.DataFrame())
-    b_lookup = r_data.get("baseline_lookup", {})
-
-    if thermal_df.empty:
-        return {
-            "count": 0,
-            "observations": [],
-        }
-
     records: List[Dict[str, Any]] = []
 
-    dataframe = thermal_df
+    if region == "ALL":
+        for r_id, r_data in region_store.items():
+            thermal_df = r_data.get("thermal_df", pd.DataFrame())
+            b_lookup = r_data.get("baseline_lookup", {})
+            if thermal_df.empty:
+                continue
 
-    if limit is not None:
-        if limit < 1:
-            raise HTTPException(
-                status_code=400,
-                detail="limit must be >= 1",
-            )
+            dataframe = thermal_df.head(limit) if limit else thermal_df
+            for _, row in dataframe.iterrows():
+                record = clean_record(row.to_dict())
+                record = attach_baseline(record, b_lookup)
+                record["region_id"] = r_id
+                records.append(record)
+    else:
+        r_data = region_store.get(region, {})
+        thermal_df = r_data.get("thermal_df", pd.DataFrame())
+        b_lookup = r_data.get("baseline_lookup", {})
 
-        dataframe = dataframe.head(limit)
+        if thermal_df.empty:
+            return {
+                "count": 0,
+                "events": [],
+            }
 
-    for _, row in dataframe.iterrows():
-
-        record = clean_record(
-            row.to_dict()
-        )
-
-        record = attach_baseline(
-            record,
-            b_lookup
-        )
-
-        records.append(record)
+        dataframe = thermal_df.head(limit) if limit else thermal_df
+        for _, row in dataframe.iterrows():
+            record = clean_record(row.to_dict())
+            record = attach_baseline(record, b_lookup)
+            record["region_id"] = region
+            records.append(record)
 
     return {
         "count": len(records),

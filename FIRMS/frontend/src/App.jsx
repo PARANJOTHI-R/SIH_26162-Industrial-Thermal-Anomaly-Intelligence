@@ -50,7 +50,7 @@ function App() {
           await Promise.all([
             getSummary(region),
             getThermalObservations(region),
-            getThermalEvents(region),
+            getThermalEvents("ALL"),
             getInvestigations(region, "ALL"),
           ]);
 
@@ -459,9 +459,12 @@ function App() {
 
                 <MapView
                   observations={filteredEvents}
-                  onObservationSelect={
-                    setSelectedObservation
-                  }
+                  onObservationSelect={(obs) => {
+                    if (obs && obs.region_id && obs.region_id !== region) {
+                      setRegion(obs.region_id);
+                    }
+                    setSelectedObservation(obs);
+                  }}
                   selectedObservation={selectedObservation}
                   center={regions.find(r => r.id === region)?.center}
                 />
