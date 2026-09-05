@@ -2,3 +2,4 @@
 /FIRMS/backend/.venv
 /FIRMS/backend/__pycache__
 /frontend/node_modules
+/FIRMS/config/__pycache__
