@@ -1146,7 +1146,12 @@ def get_facilities(region: str = Query("jamnagar")):
 # ============================================================
 
 @app.get("/summary")
-def summary():
+def summary(region: str = Query("jamnagar")):
+    r_data = region_store.get(region, {})
+    intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
+    thermal_df = r_data.get("thermal_df", pd.DataFrame())
+    baseline_lookup = r_data.get("baseline_lookup", {})
+
     high_priority = 0
     if not intelligence_df.empty and "investigation_priority" in intelligence_df.columns:
         high_priority = len(intelligence_df[intelligence_df["investigation_priority"].astype(str).str.upper() == "HIGH"])
