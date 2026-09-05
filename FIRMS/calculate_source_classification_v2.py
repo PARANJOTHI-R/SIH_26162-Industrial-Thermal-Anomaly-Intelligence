@@ -1,24 +1,23 @@
+import argparse
+import sys
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-# ============================================================
-# SIH26162 — Source Classification v2
-# OSM industrial evidence + ESA WorldCover context
-#
-# IMPORTANT:
-# - v1 is NOT modified.
-# - "INDUSTRIAL_ASSOCIATED" does NOT mean "industrial fire".
-# - WorldCover is contextual evidence, not event-day ground truth.
-# ============================================================
+parser = argparse.ArgumentParser(description="Source Classification v2")
+parser.add_argument("--region", required=True, help="Region ID")
+args = parser.parse_args()
 
-BASE = Path("SIH26162_DATA")
+sys.path.insert(0, str(Path(".").resolve()))
+from config.regions import get_region
+_region = get_region(args.region)
 
-FIRMS_FILE = BASE / "01_FIRMS" / "jamnagar_viirs_combined_historical.csv"
-OSM_FILE = BASE / "02_INDUSTRY" / "jamnagar_osm_industrial_features.csv"
-WC_FILE = BASE / "analysis" / "thermal_worldcover_context.csv"
-
-OUTPUT_FILE = BASE / "analysis" / "thermal_source_classification_v2.csv"
+FIRMS_FILE  = _region["analysis_dir"] / "thermal_events.csv"
+OSM_FILE    = _region["industry_dir"] / _region["osm_csv_file"]
+WC_FILE     = _region["analysis_dir"] / "thermal_worldcover_context.csv"
+OSM_ASSOC_FILE = _region["analysis_dir"] / "historical_thermal_osm_association.csv"
+OUTPUT_FILE = _region["analysis_dir"] / "thermal_source_classification_v2.csv"
+_REGION_ID  = args.region
 
 
 # ------------------------------------------------------------
@@ -46,34 +45,14 @@ print(f"WorldCover records: {len(wc)}")
 
 
 # ------------------------------------------------------------
-# 2. Create stable observation key
+# 2. Use Event ID as key
 # ------------------------------------------------------------
 
-KEY_COLS = [
-    "latitude",
-    "longitude",
-    "acq_date",
-    "acq_time",
-    "satellite",
-]
-
-
-def make_key(df):
-    return (
-        df["latitude"].round(6).astype(str)
-        + "|"
-        + df["longitude"].round(6).astype(str)
-        + "|"
-        + df["acq_date"].astype(str)
-        + "|"
-        + df["acq_time"].astype(str)
-        + "|"
-        + df["satellite"].astype(str)
-    )
-
-
-firms["_obs_key"] = make_key(firms)
-wc["_obs_key"] = make_key(wc)
+if "event_id" not in firms.columns:
+    raise ValueError("Missing event_id in thermal_events.csv")
+    
+if "event_id" not in wc.columns:
+    raise ValueError("Missing event_id in thermal_worldcover_context.csv")
 
 
 # ------------------------------------------------------------
@@ -116,7 +95,7 @@ print(f"Using WorldCover class column: {wc_class_col}")
 # 4. Join WorldCover context to FIRMS
 # ------------------------------------------------------------
 
-wc_context = wc[["_obs_key", wc_class_col]].copy()
+wc_context = wc[["event_id", wc_class_col]].copy()
 
 wc_context = wc_context.rename(
     columns={wc_class_col: "worldcover_class"}
@@ -124,7 +103,7 @@ wc_context = wc_context.rename(
 
 df = firms.merge(
     wc_context,
-    on="_obs_key",
+    on="event_id",
     how="left",
 )
 
@@ -203,7 +182,7 @@ for col in [
 #
 # Therefore locate v1 output.
 
-V1_FILE = BASE / "analysis" / "thermal_source_classification.csv"
+V1_FILE = _region["analysis_dir"] / "thermal_source_classification.csv"
 
 if not V1_FILE.exists():
     raise FileNotFoundError(
@@ -214,10 +193,11 @@ if not V1_FILE.exists():
 print("\nLoading v1 industrial evidence...")
 v1 = pd.read_csv(V1_FILE)
 
-v1["_obs_key"] = make_key(v1)
+if "event_id" not in v1.columns:
+    raise ValueError("Missing event_id in v1 classification")
 
 v1_cols = [
-    "_obs_key"
+    "event_id"
 ]
 
 # Preserve useful v1 fields if present
@@ -239,14 +219,14 @@ v1_small = v1[v1_cols].copy()
 rename_map = {}
 
 for col in v1_small.columns:
-    if col != "_obs_key" and col in df.columns:
+    if col != "event_id" and col in df.columns:
         rename_map[col] = f"v1_{col}"
 
 v1_small = v1_small.rename(columns=rename_map)
 
 df = df.merge(
     v1_small,
-    on="_obs_key",
+    on="event_id",
     how="left",
 )
 
@@ -537,7 +517,7 @@ df.loc[
 # classification can explain which mapped feature supported it.
 
 OSM_ASSOC_FILE = (
-    BASE / "analysis" / "historical_thermal_osm_association.csv"
+    _region["analysis_dir"] / "historical_thermal_osm_association.csv"
 )
 
 if not OSM_ASSOC_FILE.exists():
@@ -549,10 +529,11 @@ print("\nLoading OSM association evidence...")
 
 osm_assoc = pd.read_csv(OSM_ASSOC_FILE)
 
-osm_assoc["_obs_key"] = make_key(osm_assoc)
+if "event_id" not in osm_assoc.columns:
+    raise ValueError("Missing event_id in OSM association data")
 
 osm_evidence_cols = [
-    "_obs_key",
+    "event_id",
     "association_type",
     "association_confidence",
     "osm_type",
@@ -576,14 +557,14 @@ osm_small = osm_assoc[osm_evidence_cols].copy()
 rename_map = {}
 
 for col in osm_small.columns:
-    if col != "_obs_key" and col in df.columns:
-        rename_map[col] = f"osm_{col}"
+    if col != "event_id" and col in df.columns:
+        rename_map[col] = f"assoc_{col}"
 
 osm_small = osm_small.rename(columns=rename_map)
 
 df = df.merge(
     osm_small,
-    on="_obs_key",
+    on="event_id",
     how="left",
 )
 
@@ -724,18 +705,21 @@ df["evidence_summary"] = df.apply(
 # ------------------------------------------------------------
 
 preferred_columns = [
-    # FIRMS
+    # Event Fields
+    "event_id",
+    "event_date",
+    "event_start_time",
+    "event_end_time",
+    "observation_count",
+    "satellite_count",
+    "satellites",
+    "max_frp",
+    "total_frp",
+    "mean_frp",
+    
+    # Coordinates
     "latitude",
     "longitude",
-    "acq_date",
-    "acq_time",
-    "satellite",
-    "instrument",
-    "confidence",
-    "bright_ti4",
-    "bright_ti5",
-    "frp",
-    "daynight",
 
     # WorldCover
     "worldcover_class",

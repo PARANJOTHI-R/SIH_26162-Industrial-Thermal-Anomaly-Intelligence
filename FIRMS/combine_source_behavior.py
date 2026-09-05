@@ -1,16 +1,21 @@
+import argparse
+import sys
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-BASE = Path("SIH26162_DATA")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config.regions import get_region
 
-SOURCE_FILE = BASE / "analysis" / "thermal_source_classification_v2.csv"
-BEHAVIOR_FILE = BASE / "analysis" / "facility_behavior_assessment.csv"
-PERSISTENCE_FILE = BASE / "analysis" / "facility_persistence_summary.csv"
+parser = argparse.ArgumentParser(description="Combine source + behavior")
+parser.add_argument("--region", required=True)
+args = parser.parse_args()
+_region = get_region(args.region)
 
-OUTPUT_FILE = (
-    BASE / "analysis" / "thermal_source_behavior_intelligence.csv"
-)
+SOURCE_FILE      = _region["analysis_dir"] / "thermal_source_classification_v2.csv"
+BEHAVIOR_FILE    = _region["analysis_dir"] / "facility_behavior_assessment.csv"
+PERSISTENCE_FILE = _region["analysis_dir"] / "facility_persistence_summary.csv"
+OUTPUT_FILE      = _region["analysis_dir"] / "thermal_source_behavior_intelligence.csv"
 
 print("=" * 70)
 print("SIH26162 — Source + Behaviour Intelligence")
@@ -32,6 +37,9 @@ print(f"Persistence facilities: {len(persistence)}")
 # ------------------------------------------------------------
 # 2. Normalize dates
 # ------------------------------------------------------------
+
+if "event_date" in source.columns:
+    source = source.rename(columns={"event_date": "acq_date", "event_start_time": "acq_time"})
 
 source["acq_date"] = pd.to_datetime(
     source["acq_date"]
@@ -58,7 +66,7 @@ behavior["acq_date"] = pd.to_datetime(
 # Unmatched observations remain UNKNOWN.
 
 source["facility_name"] = (
-    source["name"]
+    source.get("nearest_osm_name", source.get("name"))
     .fillna("")
     .astype(str)
     .str.strip()
@@ -122,9 +130,9 @@ source_daily = (
     )
     .agg(
         observation_count=("latitude", "count"),
-        max_frp_mw=("frp", "max"),
-        mean_frp_mw=("frp", "mean"),
-        total_frp_mw=("frp", "sum"),
+        max_frp_mw=("max_frp", "max"),
+        mean_frp_mw=("max_frp", "mean"),
+        total_frp_mw=("max_frp", "sum"),
 
         source_class=("source_class_v2", "first"),
         classification_confidence=(

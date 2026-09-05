@@ -1,0 +1,7 @@
+facility_name,first_observation,last_observation,observation_window_days,active_days,activity_frequency,median_gap_days,max_gap_days,max_consecutive_active_days,total_detections,maximum_frp_mw,mean_daily_max_frp_mw
+Arasadi,2026-03-02,2026-07-29,150,5,0.0333,25.5,90.0,1,5,13.0,7.599999999999999
+DCW,2026-06-06,2026-08-28,84,11,0.131,5.0,30.0,3,12,9.24,4.735454545454545
+SEPC,2026-07-01,2026-07-01,1,1,1.0,,,1,1,18.01,18.01
+Thoothukudi IBPGL,2026-04-14,2026-07-30,108,5,0.0463,21.5,60.0,1,5,1.36,0.8180000000000002
+Thoothukudi IBTPL power station,2026-05-05,2026-08-09,97,4,0.0412,26.0,58.0,1,4,9.0,7.3475
+UNKNOWN,2026-03-03,2026-08-29,180,84,0.4667,1.0,14.0,10,171,48.72,6.665357142857142

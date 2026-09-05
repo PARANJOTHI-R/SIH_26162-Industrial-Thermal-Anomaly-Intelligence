@@ -1,23 +1,15 @@
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import math
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-
-INTELLIGENCE_FILE = DATA_DIR / "thermal_source_behavior_intelligence.csv"
-THERMAL_FILE = DATA_DIR / "thermal_source_classification_v2.csv"
-BASELINE_FILE = DATA_DIR / "facility_behavior_baseline.csv"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from config.regions import REGIONS
 
 
 # ============================================================
@@ -45,14 +37,8 @@ app.add_middleware(
 # ============================================================
 # GLOBAL DATA
 # ============================================================
-
-intelligence_df = pd.DataFrame()
-thermal_df = pd.DataFrame()
-baseline_df = pd.DataFrame()
-
-baseline_lookup: Dict[str, Dict[str, Any]] = {}
-intelligence_lookup: Dict[str, Dict[str, Any]] = {}
-spatial_lookup: Dict[str, Dict[str, Any]] = {}
+# Map of region_id -> dict of dataframes and lookups
+region_store: Dict[str, Dict[str, Any]] = {}
 
 
 # ============================================================
@@ -399,7 +385,10 @@ def build_intelligence_lookup(
 # SPATIAL BEHAVIOUR
 # ============================================================
 
-def build_spatial_lookup() -> Dict[str, Dict[str, Any]]:
+def build_spatial_lookup(
+    intelligence_df: pd.DataFrame,
+    thermal_df: pd.DataFrame,
+) -> Dict[str, Dict[str, Any]]:
     """
     Build walk-forward spatial behaviour logic for facility-days.
     """
@@ -415,6 +404,8 @@ def build_spatial_lookup() -> Dict[str, Dict[str, Any]]:
         return lookup
         
     thermal_copy = thermal_df.copy()
+    if "event_date" in thermal_copy.columns and "acq_date" not in thermal_copy.columns:
+        thermal_copy = thermal_copy.rename(columns={"event_date": "acq_date"})
     thermal_copy["facility_key"] = fac_keys.apply(normalize_facility_name)
     
     for _, row in intelligence_df.iterrows():
@@ -510,6 +501,7 @@ def build_spatial_lookup() -> Dict[str, Dict[str, Any]]:
 
 def attach_baseline(
     record: Dict[str, Any],
+    baseline_lookup: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
     Attach facility baseline to an individual thermal observation.
@@ -615,6 +607,8 @@ def attach_baseline(
 
 def attach_baseline_to_facility_day(
     record: Dict[str, Any],
+    baseline_lookup: Dict[str, Dict[str, Any]],
+    spatial_lookup: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
     Attach baseline information to a facility-day record.
@@ -700,84 +694,50 @@ def attach_baseline_to_facility_day(
 # ============================================================
 
 def initialize_data():
-    global intelligence_df
-    global thermal_df
-    global baseline_df
-    global baseline_lookup
-    global intelligence_lookup
-
+    global region_store
+    
     print("=" * 70)
     print("SIH26162 THERMAL INTELLIGENCE API")
     print("=" * 70)
 
-    # --------------------------------------------------------
-    # Load datasets
-    # --------------------------------------------------------
+    for region_id, region_config in REGIONS.items():
+        print(f"\nInitializing Region: {region_id.upper()}")
+        print("-" * 50)
+        
+        data_dir = Path(region_config["analysis_dir"])
+        
+        intel_df = load_csv(data_dir / "thermal_source_behavior_intelligence.csv", "intelligence data")
+        thermal_df = load_csv(data_dir / "thermal_source_classification_v2.csv", "thermal events")
+        raw_df = load_csv(data_dir / "thermal_event_observations.csv", "raw observations")
+        unknown_sources_df = load_csv(data_dir / "unknown_thermal_sources.csv", "unknown sources")
+        unknown_events_df = load_csv(data_dir / "unknown_source_events.csv", "unknown events")
+        baseline_df = load_csv(data_dir / "facility_behavior_baseline.csv", "facility baselines")
+        
+        b_lookup = build_baseline_lookup(baseline_df)
+        i_lookup = build_intelligence_lookup(intel_df)
+        s_lookup = build_spatial_lookup(intel_df, thermal_df)
+        
+        region_store[region_id] = {
+            "intelligence_df": intel_df,
+            "thermal_df": thermal_df,
+            "raw_observations_df": raw_df,
+            "unknown_sources_df": unknown_sources_df,
+            "unknown_events_df": unknown_events_df,
+            "baseline_df": baseline_df,
+            "baseline_lookup": b_lookup,
+            "intelligence_lookup": i_lookup,
+            "spatial_lookup": s_lookup,
+        }
 
-    intelligence_df = load_csv(
-        INTELLIGENCE_FILE,
-        "intelligence data",
-    )
+        print(f"Facility baseline lookup: {len(b_lookup)} facilities")
+        print(f"Facility-day intelligence lookup: {len(i_lookup)} records")
 
-    thermal_df = load_csv(
-        THERMAL_FILE,
-        "thermal observations",
-    )
-
-    baseline_df = load_csv(
-        BASELINE_FILE,
-        "facility baselines",
-    )
-
-    # --------------------------------------------------------
-    # Build lookups
-    # --------------------------------------------------------
-
-    baseline_lookup = build_baseline_lookup(
-        baseline_df
-    )
-
-    intelligence_lookup = build_intelligence_lookup(
-        intelligence_df
-    )
-    
-    global spatial_lookup
-    spatial_lookup = build_spatial_lookup()
-
-    print(
-        f"Facility baseline lookup: "
-        f"{len(baseline_lookup)} facilities"
-    )
-
-    print(
-        f"Facility-day intelligence lookup: "
-        f"{len(intelligence_lookup)} records"
-    )
-
-    print("=" * 70)
-    print("DATASET STATUS")
-    print("=" * 70)
-
-    print(
-        f"Thermal observations : {len(thermal_df)}"
-    )
-
-    print(
-        f"Facility-day records : {len(intelligence_df)}"
-    )
-
-    print(
-        f"Baseline facilities  : {len(baseline_lookup)}"
-    )
-
-    print(
-        f"Intelligence lookup  : {len(intelligence_lookup)}"
-    )
-
-    print("=" * 70)
-
+    print("\n" + "=" * 70)
+    print("ALL REGIONS INITIALIZED")
+    print("=" * 70 + "\n")
 
 initialize_data()
+
 
 
 # ============================================================
@@ -796,38 +756,53 @@ async def startup_event():
 # ============================================================
 
 @app.get("/")
-def root():
+def root(region: str = Query("jamnagar")):
+    r_data = region_store.get(region, {})
     return {
         "status": "operational",
         "service": "SIH26162 Thermal Intelligence API",
-        "thermal_observations": len(thermal_df),
-        "facility_days": len(intelligence_df),
-        "facilities_with_baselines": len(
-            baseline_lookup
-        ),
-        "intelligence_lookup_records": len(
-            intelligence_lookup
-        ),
+        "thermal_observations": len(r_data.get("thermal_df", [])),
+        "facility_days": len(r_data.get("intelligence_df", [])),
+        "facilities_with_baselines": len(r_data.get("baseline_lookup", {})),
+        "intelligence_lookup_records": len(r_data.get("intelligence_lookup", {})),
     }
 
+
+# ============================================================
+# REGIONS
+# ============================================================
+
+@app.get("/regions")
+def get_regions():
+    return {
+        "regions": [
+            {
+                "id": region_id,
+                "name": config["display_name"],
+                "center": config["map_center"],
+                "bbox": config["bbox"],
+            }
+            for region_id, config in REGIONS.items()
+        ]
+    }
 
 # ============================================================
 # DATA STATUS
 # ============================================================
 
 @app.get("/data-status")
-def data_status():
-
+def data_status(region: str = Query("jamnagar")):
+    
+    r_data = region_store.get(region, {})
+    
     return {
         "status": "operational",
-        "thermal_observations": len(thermal_df),
-        "facility_days": len(intelligence_df),
-        "facilities_with_baselines": len(
-            baseline_lookup
-        ),
-        "intelligence_lookup_records": len(
-            intelligence_lookup
-        ),
+        "thermal_observations": len(r_data.get("raw_observations_df", [])),
+        "thermal_events": len(r_data.get("thermal_df", [])),
+        "unknown_sources": len(r_data.get("unknown_sources_df", [])),
+        "facility_days": len(r_data.get("intelligence_df", [])),
+        "facilities_with_baselines": len(r_data.get("baseline_lookup", {})),
+        "intelligence_lookup_records": len(r_data.get("intelligence_lookup", {})),
     }
 
 
@@ -835,9 +810,10 @@ def data_status():
 # THERMAL OBSERVATIONS
 # ============================================================
 
-@app.get("/thermal-observations")
-def get_thermal_observations(
+@app.get("/thermal-events")
+def get_thermal_events(
     limit: Optional[int] = None,
+    region: str = Query("jamnagar")
 ):
     """
     Return thermal observations enriched with:
@@ -847,6 +823,10 @@ def get_thermal_observations(
     - FRP / P95 ratio
     - P90/P95 flags
     """
+    
+    r_data = region_store.get(region, {})
+    thermal_df = r_data.get("thermal_df", pd.DataFrame())
+    b_lookup = r_data.get("baseline_lookup", {})
 
     if thermal_df.empty:
         return {
@@ -874,16 +854,85 @@ def get_thermal_observations(
         )
 
         record = attach_baseline(
-            record
+            record,
+            b_lookup
         )
 
         records.append(record)
 
     return {
         "count": len(records),
+        "events": records,
+    }
+
+# ============================================================
+# RAW THERMAL OBSERVATIONS
+# ============================================================
+
+@app.get("/thermal-observations")
+def get_raw_thermal_observations(
+    limit: Optional[int] = None,
+    region: str = Query("jamnagar")
+):
+    r_data = region_store.get(region, {})
+    raw_df = r_data.get("raw_observations_df", pd.DataFrame())
+    
+    if raw_df.empty:
+        return {"count": 0, "observations": []}
+        
+    records = []
+    dataframe = raw_df
+    
+    if limit is not None:
+        if limit < 1:
+            raise HTTPException(status_code=400, detail="limit must be >= 1")
+        dataframe = dataframe.head(limit)
+        
+    for _, row in dataframe.iterrows():
+        records.append(clean_record(row.to_dict()))
+        
+    return {
+        "count": len(records),
         "observations": records,
     }
 
+# ============================================================
+# UNKNOWN SOURCES
+# ============================================================
+
+@app.get("/unknown-sources")
+def get_unknown_sources(region: str = Query("jamnagar")):
+    r_data = region_store.get(region, {})
+    unknown_sources_df = r_data.get("unknown_sources_df", pd.DataFrame())
+    
+    if unknown_sources_df.empty:
+        return {"count": 0, "sources": []}
+        
+    records = []
+    for _, row in unknown_sources_df.iterrows():
+        records.append(clean_record(row.to_dict()))
+        
+    return {
+        "count": len(records),
+        "sources": records,
+    }
+    
+@app.get("/unknown-source-events")
+def get_unknown_source_events(region: str = Query("jamnagar")):
+    r_data = region_store.get(region, {})
+    unknown_events_df = r_data.get("unknown_events_df", pd.DataFrame())
+    
+    if unknown_events_df.empty:
+        return {"count": 0, "events": []}
+        
+    records = []
+    for _, row in unknown_events_df.iterrows():
+        records.append(clean_record(row.to_dict()))
+        
+    return {
+        "count": len(records),
+        "events": records,
+    }
 
 # ============================================================
 # FACILITY DAYS
@@ -892,18 +941,15 @@ def get_thermal_observations(
 @app.get("/facility-days")
 def get_facility_days(
     facility: Optional[str] = None,
+    region: str = Query("jamnagar"),
 ):
     """
     Return facility-day intelligence records.
     """
-
-    if intelligence_df.empty:
-        return {
-            "count": 0,
-            "facility_days": [],
-        }
-
-    dataframe = intelligence_df
+    r_data = region_store.get(region, {})
+    intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
+    b_lookup = r_data.get("baseline_lookup", {})
+    s_lookup = r_data.get("spatial_lookup", {})
 
     if facility:
         normalized = normalize_facility_name(
@@ -941,7 +987,9 @@ def get_facility_days(
         )
 
         record = attach_baseline_to_facility_day(
-            record
+            record,
+            b_lookup,
+            s_lookup,
         )
 
         records.append(record)
@@ -957,13 +1005,12 @@ def get_facility_days(
 # ============================================================
 
 @app.get("/investigations")
-def get_investigations():
-
-    if intelligence_df.empty:
-        return {
-            "count": 0,
-            "investigations": [],
-        }
+def get_investigations(region: str = Query("jamnagar")):
+    
+    r_data = region_store.get(region, {})
+    intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
+    b_lookup = r_data.get("baseline_lookup", {})
+    s_lookup = r_data.get("spatial_lookup", {})
 
     records = []
 
@@ -974,7 +1021,9 @@ def get_investigations():
         )
 
         record = attach_baseline_to_facility_day(
-            record
+            record,
+            b_lookup,
+            s_lookup,
         )
 
         records.append(record)
@@ -990,13 +1039,11 @@ def get_investigations():
 # ============================================================
 
 @app.get("/facilities")
-def get_facilities():
+def get_facilities(region: str = Query("jamnagar")):
 
-    if intelligence_df.empty:
-        return {
-            "count": 0,
-            "facilities": [],
-        }
+    r_data = region_store.get(region, {})
+    intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
+    baseline_lookup = r_data.get("baseline_lookup", {})
 
     facility_column = None
 

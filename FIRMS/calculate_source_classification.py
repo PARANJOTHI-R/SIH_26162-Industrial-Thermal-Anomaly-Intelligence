@@ -4,9 +4,21 @@ import geopandas as gpd
 from shapely import wkt
 from shapely.geometry import Point
 
-FIRMS_FILE = "SIH26162_DATA/01_FIRMS/jamnagar_viirs_combined_historical.csv"
-OSM_FILE = "SIH26162_DATA/02_INDUSTRY/jamnagar_osm_industrial_features.csv"
-OUTPUT_FILE = "SIH26162_DATA/analysis/thermal_source_classification.csv"
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config.regions import get_region
+
+parser = argparse.ArgumentParser(description="Source Classification v1")
+parser.add_argument("--region", required=True)
+args = parser.parse_args()
+_region = get_region(args.region)
+
+FIRMS_FILE  = str(_region["analysis_dir"] / "thermal_events.csv")
+OSM_FILE    = str(_region["industry_dir"] / _region["osm_csv_file"])
+OUTPUT_FILE = str(_region["analysis_dir"] / "thermal_source_classification.csv")
 
 # ---------------------------------------------------------
 # Configuration
@@ -52,14 +64,11 @@ firms_gdf = gpd.GeoDataFrame(
 
 print("Loading OSM industrial features...")
 osm = pd.read_csv(OSM_FILE)
-
-osm["geometry"] = osm["geometry_wkt"].apply(wkt.loads)
-
-osm_gdf = gpd.GeoDataFrame(
-    osm,
-    geometry="geometry",
-    crs="EPSG:4326"
-)
+# Drop features that don't have a valid geometry string
+osm = osm.dropna(subset=["geometry_wkt"])
+osm["geometry"] = osm["geometry_wkt"].astype(str).apply(wkt.loads)
+osm_gdf = gpd.GeoDataFrame(osm, geometry="geometry")
+osm_gdf.set_crs(epsg=4326, inplace=True)
 
 print(f"OSM features: {len(osm_gdf)}")
 
@@ -191,14 +200,13 @@ for idx, fire in firms_m.iterrows():
         nearest_type = None
 
     results.append({
+        "event_id": fire.get("event_id"),
         "latitude": fire["latitude"],
         "longitude": fire["longitude"],
-        "acq_date": fire["acq_date"],
-        "acq_time": fire["acq_time"],
-        "satellite": fire["satellite"],
-        "frp": fire["frp"],
-        "confidence": fire["confidence"],
-        "daynight": fire["daynight"],
+        "event_date": fire.get("event_date"),
+        "event_start_time": fire.get("event_start_time"),
+        "max_frp": fire.get("max_frp"),
+        "observation_count": fire.get("observation_count"),
 
         "source_class": source_class,
         "classification_confidence": confidence,

@@ -7,6 +7,7 @@ function MapView({
   observations = [],
   onObservationSelect,
   selectedObservation,
+  center,
 }) {
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -44,7 +45,7 @@ function MapView({
         ],
       },
 
-      center: [69.85, 22.35],
+      center: center || [69.85, 22.35],
       zoom: 9,
     });
 
@@ -60,6 +61,14 @@ function MapView({
       map.current = null;
     };
   }, []);
+
+  // --------------------------------------------------------
+  // Update map center when region changes
+  // --------------------------------------------------------
+  useEffect(() => {
+    if (!map.current || !center) return;
+    map.current.jumpTo({ center: center, zoom: 9 });
+  }, [center]);
 
   // --------------------------------------------------------
   // Fly to selected observation

@@ -1,27 +1,20 @@
 import os
+import argparse
+import sys
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config.regions import get_region
 
-# ============================================================
-# PATHS
-# ============================================================
+parser = argparse.ArgumentParser(description="Calculate behavior scores")
+parser.add_argument("--region", required=True)
+args = parser.parse_args()
+_region = get_region(args.region)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-HISTORY_FILE = os.path.join(
-    BASE_DIR,
-    "SIH26162_DATA",
-    "analysis",
-    "facility_daily_thermal_history.csv"
-)
-
-OUTPUT_FILE = os.path.join(
-    BASE_DIR,
-    "SIH26162_DATA",
-    "analysis",
-    "facility_behavior_assessment.csv"
-)
+HISTORY_FILE = str(_region["analysis_dir"] / "facility_daily_thermal_history.csv")
+OUTPUT_FILE  = str(_region["analysis_dir"] / "facility_behavior_assessment.csv")
 
 
 # ============================================================

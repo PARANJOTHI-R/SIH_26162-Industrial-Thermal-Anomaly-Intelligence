@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import {
   getSummary,
   getThermalObservations,
+  getInvestigations,
+  getRegions,
 } from "./services/api";
 
 import SummaryCards from "./components/SummaryCards";
@@ -18,18 +20,35 @@ function App() {
   const [error, setError] = useState(null);
   const [investigations, setInvestigations] = useState([]);
   
+  // Region
+  const [region, setRegion] = useState("jamnagar");
+  const [regions, setRegions] = useState([]);
+  
   // Filters
   const [filterSourceClass, setFilterSourceClass] = useState("ALL");
   const [filterPriority, setFilterPriority] = useState("ALL");
   const [filterDate, setFilterDate] = useState("ALL");
 
   useEffect(() => {
+    async function fetchRegions() {
+      try {
+        const data = await getRegions();
+        setRegions(data.regions || []);
+      } catch (err) {
+        console.error("Failed to fetch regions:", err);
+      }
+    }
+    fetchRegions();
+  }, []);
+
+  useEffect(() => {
     async function loadDashboard() {
       try {
-        const [summaryData, observationData] =
+        const [summaryData, observationData, investigationsData] =
           await Promise.all([
-            getSummary(),
-            getThermalObservations(),
+            getSummary(region),
+            getThermalObservations(region),
+            getInvestigations(region, "ALL"),
           ]);
 
         console.log(
@@ -70,14 +89,6 @@ function App() {
 
           setObservations([]);
         }
-        const investigationsResponse =
-          await fetch(
-            "http://localhost:8000/investigations"
-          );
-
-        const investigationsData =
-          await investigationsResponse.json();
-
         console.log(
           "Investigations received:",
           investigationsData
@@ -98,7 +109,7 @@ function App() {
     }
 
     loadDashboard();
-  }, []);
+  }, [region]);
   const handleInvestigationSelect = (investigation) => {
     if (!investigation) return;
 
@@ -307,7 +318,27 @@ function App() {
           </div>
         </div>
 
-        <div className="system-status">
+        <div className="system-status" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {regions.length > 0 && (
+            <select 
+              value={region} 
+              onChange={(e) => setRegion(e.target.value)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,0.2)',
+                padding: '0.25rem 0.5rem',
+                borderRadius: '4px',
+                outline: 'none',
+              }}
+            >
+              {regions.map(r => (
+                <option key={r.id} value={r.id} style={{color: 'black'}}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="status-dot"></span>
           SYSTEM ONLINE
         </div>
@@ -419,6 +450,7 @@ function App() {
                     setSelectedObservation
                   }
                   selectedObservation={selectedObservation}
+                  center={regions.find(r => r.id === region)?.center}
                 />
 
 

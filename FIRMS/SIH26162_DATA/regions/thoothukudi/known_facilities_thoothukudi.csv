@@ -1,0 +1,7 @@
+facility_id,facility_name,latitude,longitude,facility_type,operator,region_id,source
+THO_SIPCOT_IND,SIPCOT Industrial Estate Thoothukudi,8.7617,78.0878,industrial_estate,SIPCOT,thoothukudi,OSM
+THO_SPIC_CHEM,SPIC Chemical Complex,8.7556,78.0925,chemical_plant,SPIC,thoothukudi,OSM
+THO_TNEB_THERMAL,Thoothukudi Thermal Power Station,8.7320,78.0650,thermal_power_plant,TANGEDCO,thoothukudi,OSM
+THO_COROMANDEL_FERT,Coromandel Fertilizers,8.7500,78.0800,fertilizer_plant,Coromandel International,thoothukudi,OSM
+THO_VEDANTA_COPPER,Vedanta Copper Smelter (Sterlite),8.7450,78.0720,copper_smelter,Vedanta,thoothukudi,OSM/Published
+THO_VOC_PORT,V.O. Chidambaranar Port,8.7620,78.1630,port,VoCPT,thoothukudi,OSM

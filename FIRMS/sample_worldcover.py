@@ -1,26 +1,20 @@
+"""
+sample_worldcover.py  --region <region_id>
+
+Samples ESA WorldCover land-cover class at each thermal event centroid.
+Works for any configured region.
+"""
+
+import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
 import rasterio
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config.regions import get_region
 
-FIRMS_FILE = Path(
-    "SIH26162_DATA/01_FIRMS/"
-    "jamnagar_viirs_combined_historical.csv"
-)
-
-WORLDCOVER_FILE = Path(
-    "SIH26162_DATA/03_LANDCOVER/"
-    "ESA_WorldCover_10m_2021_v200_N21E069_Map.tif"
-)
-
-OUTPUT_FILE = Path(
-    "SIH26162_DATA/analysis/"
-    "thermal_worldcover_context.csv"
-)
-
-
-# ESA WorldCover class codes
 WORLDCOVER_CLASSES = {
     10: "TREE_COVER",
     20: "SHRUBLAND",
@@ -36,91 +30,69 @@ WORLDCOVER_CLASSES = {
 }
 
 
-print("=" * 60)
-print("WORLD COVER SAMPLING")
-print("=" * 60)
+def run_sampling(region_id: str):
+    region = get_region(region_id)
 
-print("Loading FIRMS observations...")
-firms = pd.read_csv(FIRMS_FILE)
+    FIRMS_FILE    = region["analysis_dir"] / "thermal_events.csv"
+    WC_FILE       = region["landcover_dir"] / region["worldcover_tif_file"]
+    OUTPUT_FILE   = region["analysis_dir"] / "thermal_worldcover_context.csv"
 
-print(f"FIRMS observations: {len(firms)}")
+    print("=" * 60)
+    print(f"WORLD COVER SAMPLING  [{region_id.upper()}]")
+    print("=" * 60)
 
-print("Opening WorldCover raster...")
-raster = rasterio.open(WORLDCOVER_FILE)
+    firms = pd.read_csv(FIRMS_FILE)
+    print(f"Events: {len(firms)}")
 
-print(f"CRS: {raster.crs}")
-print(f"Bounds: {raster.bounds}")
-print(f"Resolution: {raster.res}")
+    if not WC_FILE.exists():
+        print(f"WARNING: WorldCover file not found: {WC_FILE}")
+        print("Writing empty context file.")
+        firms["worldcover_class_code"] = None
+        firms["worldcover_class"] = "UNKNOWN"
+        firms[["event_id","latitude","longitude","event_date",
+               "event_start_time","max_frp","observation_count",
+               "worldcover_class_code","worldcover_class"]].to_csv(OUTPUT_FILE, index=False)
+        return
 
-results = []
+    print(f"Opening WorldCover raster: {WC_FILE}")
+    raster = rasterio.open(WC_FILE)
 
-# ---------------------------------------------------------
-# Sample WorldCover at each FIRMS point
-# ---------------------------------------------------------
+    results = []
+    for _, row in firms.iterrows():
+        lon = row["longitude"]
+        lat = row["latitude"]
+        try:
+            value = next(raster.sample([(lon, lat)]))[0]
+            class_code = int(value)
+            class_name = WORLDCOVER_CLASSES.get(class_code, "UNKNOWN")
+        except Exception:
+            class_code = None
+            class_name = "UNKNOWN"
 
-for _, row in firms.iterrows():
+        results.append({
+            "event_id":            row.get("event_id"),
+            "latitude":            lat,
+            "longitude":           lon,
+            "event_date":          row.get("event_date"),
+            "event_start_time":    row.get("event_start_time"),
+            "max_frp":             row.get("max_frp"),
+            "observation_count":   row.get("observation_count"),
+            "worldcover_class_code": class_code,
+            "worldcover_class":    class_name,
+        })
 
-    longitude = row["longitude"]
-    latitude = row["latitude"]
+    raster.close()
+    result = pd.DataFrame(results)
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    result.to_csv(OUTPUT_FILE, index=False)
 
-    try:
-        value = next(
-            raster.sample(
-                [(longitude, latitude)]
-            )
-        )[0]
-
-        class_code = int(value)
-
-        class_name = WORLDCOVER_CLASSES.get(
-            class_code,
-            "UNKNOWN"
-        )
-
-    except Exception:
-        class_code = None
-        class_name = "UNKNOWN"
-
-    results.append({
-        "latitude": latitude,
-        "longitude": longitude,
-        "acq_date": row["acq_date"],
-        "acq_time": row["acq_time"],
-        "satellite": row["satellite"],
-        "frp": row["frp"],
-        "confidence": row["confidence"],
-        "daynight": row["daynight"],
-
-        "worldcover_class_code": class_code,
-        "worldcover_class": class_name,
-    })
+    print()
+    print(result["worldcover_class"].value_counts().to_string())
+    print(f"\nSaved: {OUTPUT_FILE.resolve()}")
 
 
-raster.close()
-
-result = pd.DataFrame(results)
-
-OUTPUT_FILE.parent.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-result.to_csv(
-    OUTPUT_FILE,
-    index=False
-)
-
-print()
-print("=" * 60)
-print("WORLD COVER SUMMARY")
-print("=" * 60)
-
-print(
-    result["worldcover_class"]
-    .value_counts()
-    .to_string()
-)
-
-print()
-print("Saved:")
-print(OUTPUT_FILE.resolve())
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="WorldCover sampling")
+    parser.add_argument("--region", required=True)
+    args = parser.parse_args()
+    run_sampling(args.region)

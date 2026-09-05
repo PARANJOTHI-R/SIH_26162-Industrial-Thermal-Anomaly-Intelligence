@@ -10,24 +10,28 @@ async function fetchJSON(endpoint) {
   return response.json();
 }
 
-export async function getSummary() {
-  return fetchJSON("/summary");
+export async function getRegions() {
+  return fetchJSON("/regions");
 }
 
-export async function getInvestigations(priority = "HIGH") {
+export async function getSummary(region = "jamnagar") {
+  return fetchJSON(`/summary?region=${encodeURIComponent(region)}`);
+}
+
+export async function getInvestigations(region = "jamnagar", priority = "HIGH") {
   return fetchJSON(
-    `/investigations?priority=${encodeURIComponent(priority)}`
+    `/investigations?region=${encodeURIComponent(region)}&priority=${encodeURIComponent(priority)}`
   );
 }
 
-export async function getFacilityDays() {
-  return fetchJSON("/facility-days");
+export async function getFacilityDays(region = "jamnagar") {
+  return fetchJSON(`/facility-days?region=${encodeURIComponent(region)}`);
 }
 
-export async function getThermalObservations() {
-  return fetchJSON("/thermal-observations");
+export async function getThermalObservations(region = "jamnagar") {
+  return fetchJSON(`/thermal-observations?region=${encodeURIComponent(region)}`);
 }
 
-export async function getFacilities() {
-  return fetchJSON("/facilities");
+export async function getFacilities(region = "jamnagar") {
+  return fetchJSON(`/facilities?region=${encodeURIComponent(region)}`);
 }
