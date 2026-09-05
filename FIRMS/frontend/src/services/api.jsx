@@ -32,6 +32,10 @@ export async function getThermalObservations(region = "jamnagar") {
   return fetchJSON(`/thermal-observations?region=${encodeURIComponent(region)}`);
 }
 
+export async function getThermalEvents(region = "jamnagar") {
+  return fetchJSON(`/thermal-events?region=${encodeURIComponent(region)}`);
+}
+
 export async function getFacilities(region = "jamnagar") {
   return fetchJSON(`/facilities?region=${encodeURIComponent(region)}`);
 }

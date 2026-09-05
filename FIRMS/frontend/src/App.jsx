@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   getSummary,
   getThermalObservations,
+  getThermalEvents,
   getInvestigations,
   getRegions,
 } from "./services/api";
@@ -16,6 +17,7 @@ import InvestigationQueue from "./components/InvestigationQueue";
 function App() {
   const [summary, setSummary] = useState(null);
   const [observations, setObservations] = useState([]);
+  const [events, setEvents] = useState([]);
   const [selectedObservation, setSelectedObservation] = useState(null);
   const [error, setError] = useState(null);
   const [investigations, setInvestigations] = useState([]);
@@ -44,67 +46,57 @@ function App() {
   useEffect(() => {
     async function loadDashboard() {
       try {
-        const [summaryData, observationData, investigationsData] =
+        const [summaryData, observationData, eventsData, investigationsData] =
           await Promise.all([
             getSummary(region),
             getThermalObservations(region),
+            getThermalEvents(region),
             getInvestigations(region, "ALL"),
           ]);
 
-        console.log(
-          "Summary received:",
-          summaryData
-        );
-
-        console.log(
-          "Thermal observations response:",
-          observationData
-        );
+        console.log("Summary received:", summaryData);
+        console.log("Thermal observations response:", observationData);
 
         setSummary(summaryData);
 
-        // Backend normally returns:
-        // { records: [...] }
-        //
-        // Also support a direct array response.
+        // Raw observations (for count only)
         if (Array.isArray(observationData)) {
           setObservations(observationData);
-        } else if (
-          Array.isArray(observationData?.records)
-        ) {
-          setObservations(
-            observationData.records
-          );
-        } else if (
-          Array.isArray(observationData?.observations)
-        ) {
-          setObservations(
-            observationData.observations
-          );
+        } else if (Array.isArray(observationData?.records)) {
+          setObservations(observationData.records);
+        } else if (Array.isArray(observationData?.observations)) {
+          setObservations(observationData.observations);
         } else {
-          console.warn(
-            "No valid thermal observation records found:",
-            observationData
-          );
-
           setObservations([]);
         }
-        console.log(
-          "Investigations received:",
-          investigationsData
-        );
+
+        // Thermal events (for the map)
+        let evts = [];
+        if (Array.isArray(eventsData)) {
+          evts = eventsData;
+        } else if (Array.isArray(eventsData?.events)) {
+          evts = eventsData.events;
+        }
+        
+        // Map event_date to acq_date for compatibility with existing frontend logic
+        evts = evts.map(e => ({
+          ...e,
+          acq_date: e.event_date,
+          // Extract lat/lon from centroid if not present
+          latitude: e.latitude ?? e.centroid_lat,
+          longitude: e.longitude ?? e.centroid_lon
+        }));
+
+        setEvents(evts);
 
         setInvestigations(
           Array.isArray(investigationsData) ? investigationsData : (investigationsData?.investigations || [])
         );
       } catch (err) {
-        console.error(
-          "Dashboard loading error:",
-          err
-        );
-
+        console.error("Dashboard loading error:", err);
         setError(err.message);
         setObservations([]);
+        setEvents([]);
       }
     }
 
@@ -280,6 +272,27 @@ function App() {
     priorityMap.set(`${facName}_${inv.acq_date}`, inv.investigation_priority);
   });
 
+  const filteredEvents = events.filter(evt => {
+    if (filterSourceClass !== "ALL") {
+      const srcClass = evt.source_class_v2 ?? evt.source_class ?? "UNKNOWN";
+      if (srcClass !== filterSourceClass) return false;
+    }
+    if (filterPriority !== "ALL") {
+      const facName = String(evt.facility_name ?? evt.name ?? "UNKNOWN")
+        .trim().toLowerCase().replace(/refineryrefinery/ig, 'refinery');
+      const obsPriority = priorityMap.get(`${facName}_${evt.acq_date}`) || "LOW";
+      if (obsPriority !== filterPriority) return false;
+    }
+    if (filterDate !== "ALL") {
+      if (evt.acq_date !== filterDate) return false;
+    }
+    // inject priority to event for MapView
+    const facName = String(evt.facility_name ?? evt.name ?? "UNKNOWN")
+      .trim().toLowerCase().replace(/refineryrefinery/ig, 'refinery');
+    evt.investigation_priority = priorityMap.get(`${facName}_${evt.acq_date}`) || "LOW";
+    return true;
+  });
+
   const filteredObservations = observations.filter(obs => {
     if (filterSourceClass !== "ALL") {
       const srcClass = obs.source_class_v2 ?? obs.source_class ?? "UNKNOWN";
@@ -434,7 +447,7 @@ function App() {
                 </h2>
 
                 <span>
-                  {observations.length} thermal observations
+                  {observations.length} raw observations | {events.length} thermal events
                 </span>
 
               </div>
@@ -445,7 +458,7 @@ function App() {
               <div className="map-wrapper">
 
                 <MapView
-                  observations={filteredObservations}
+                  observations={filteredEvents}
                   onObservationSelect={
                     setSelectedObservation
                   }

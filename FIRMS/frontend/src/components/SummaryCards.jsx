@@ -14,7 +14,7 @@ function SummaryCards({ summary }) {
 
       <div className="summary-card">
         <div className="summary-label">
-          THERMAL OBSERVATIONS
+          THERMAL EVENTS
         </div>
 
         <div className="summary-value">
