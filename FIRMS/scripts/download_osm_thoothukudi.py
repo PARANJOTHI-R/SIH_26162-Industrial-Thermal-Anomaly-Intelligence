@@ -11,7 +11,7 @@ region = get_region("thoothukudi")
 bbox = region["bbox"]  # [west, south, east, north]
 OUTPUT_DIR = region["industry_dir"]
 
-OVERPASS = "https://overpass.kumi.systems/api/interpreter"
+OVERPASS = "https://overpass-api.de/api/interpreter"
 
 query = (
     "[out:json][timeout:120];"
@@ -19,12 +19,18 @@ query = (
     f'way["industrial"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'way["landuse"="industrial"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'way["power"="plant"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'way["power"="generator"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'way["man_made"="works"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'way["man_made"="storage_tank"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'way["landuse"="port"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'relation["industrial"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'relation["landuse"="industrial"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     f'relation["power"="plant"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'node["industrial"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'node["power"="plant"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'node["power"="generator"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'node["man_made"="works"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
+    f'node["man_made"="storage_tank"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});'
     ");"
     "out body;>;out skel qt;"
 )

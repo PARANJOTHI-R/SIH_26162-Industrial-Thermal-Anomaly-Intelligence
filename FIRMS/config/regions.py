@@ -77,7 +77,7 @@ REGIONS = {
         "firms_combined_file":  "thoothukudi_viirs_combined_historical.csv",
         "osm_geojson_file":     "thoothukudi_osm_industrial_features.geojson",
         "osm_csv_file":         "thoothukudi_osm_industrial_features.csv",
-        "worldcover_tif_file":  "ESA_WorldCover_10m_2021_v200_N08E077_Map.tif",
+        "worldcover_tif_file":  "ESA_WorldCover_10m_2021_v200_N06E078_Map.tif",
         "known_facilities_file": PROJECT_ROOT / "SIH26162_DATA" / "regions" / "thoothukudi" / "known_facilities_thoothukudi.csv",
     },
 
