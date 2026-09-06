@@ -7,6 +7,7 @@ function MapView({
   observations = [],
   onObservationSelect,
   selectedObservation,
+  activeRegionId,
   center,
 }) {
   const mapContainer = useRef(null);
@@ -67,23 +68,29 @@ function MapView({
   // --------------------------------------------------------
   useEffect(() => {
     if (!map.current || !center) return;
-    map.current.jumpTo({ center: center, zoom: 9 });
-  }, [center]);
+    // Only jump to region center if there is no selected observation
+    if (!selectedObservation) {
+      map.current.flyTo({ center: center, zoom: 9, duration: 800 });
+    }
+  }, [center, activeRegionId]);
 
   // --------------------------------------------------------
   // Fly to selected observation
   // --------------------------------------------------------
-
   useEffect(() => {
-    if (!map.current || !selectedObservation) return;
-    const lat = Number(selectedObservation.latitude);
-    const lon = Number(selectedObservation.longitude);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      map.current.flyTo({
-        center: [lon, lat],
-        zoom: 13,
-        essential: true,
-      });
+    if (!map.current) return;
+    
+    if (selectedObservation) {
+      const lat = Number(selectedObservation.latitude);
+      const lon = Number(selectedObservation.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        map.current.flyTo({
+          center: [lon, lat],
+          zoom: 13,
+          essential: true,
+          duration: 1200
+        });
+      }
     }
   }, [selectedObservation]);
 
@@ -105,13 +112,14 @@ function MapView({
       );
 
       // ----------------------------------------------
-      // Remove existing layer/source
+      // Remove existing layers/source
       // ----------------------------------------------
-
+      if (currentMap.getLayer("thermal-points-selected")) {
+        currentMap.removeLayer("thermal-points-selected");
+      }
       if (currentMap.getLayer("thermal-points")) {
         currentMap.removeLayer("thermal-points");
       }
-
       if (currentMap.getSource("thermal-observations")) {
         currentMap.removeSource("thermal-observations");
       }
@@ -152,7 +160,7 @@ function MapView({
           const lat = Number(item.latitude);
           const lon = Number(item.longitude);
 
-          const frpValue = Number(item.frp);
+          const frpValue = Number(item.max_frp ?? item.frp);
 
           const behaviorScore =
             item.behavior_score !== null &&
@@ -170,16 +178,17 @@ function MapView({
             },
 
             properties: {
-              id: index,
+              id: item.event_id || item.id || String(index),
+              event_id: item.event_id || item.id || String(index),
 
               latitude: lat,
               longitude: lon,
 
               acq_date:
-                item.acq_date ?? "—",
+                item.event_date ?? item.acq_date ?? "—",
 
               acq_time:
-                item.acq_time ?? "—",
+                item.event_start_time ?? item.acq_time ?? "—",
 
               satellite:
                 item.satellite ?? "—",
@@ -270,12 +279,15 @@ function MapView({
                 null,
 
               max_frp_mw:
-                item.max_frp_mw ??
+                item.max_frp ?? item.max_frp_mw ??
                 null,
 
               total_frp_mw:
-                item.total_frp_mw ??
+                item.total_frp ?? item.total_frp_mw ??
                 null,
+
+              baseline_available:
+                item.baseline_available ?? false,
 
               baseline_mean_frp:
                 item.baseline_mean_frp ??
@@ -470,26 +482,22 @@ function MapView({
       });
 
       // ----------------------------------------------
-      // Fit map to observations
+      // Add selected highlight layer
       // ----------------------------------------------
-
-      const bounds =
-        new maplibregl.LngLatBounds();
-
-      validObservations.forEach((item) => {
-        bounds.extend([
-          Number(item.longitude),
-          Number(item.latitude),
-        ]);
+      const selectedId = selectedObservation ? (selectedObservation.event_id || selectedObservation.id) : null;
+      currentMap.addLayer({
+        id: "thermal-points-selected",
+        type: "circle",
+        source: "thermal-observations",
+        filter: ["==", ["get", "event_id"], selectedId ? selectedId : -1],
+        paint: {
+          "circle-radius": 16,
+          "circle-color": "transparent",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 3,
+          "circle-opacity": 1,
+        },
       });
-
-      if (!bounds.isEmpty()) {
-        currentMap.fitBounds(bounds, {
-          padding: 50,
-          maxZoom: 11,
-          duration: 800,
-        });
-      }
 
       // ----------------------------------------------
       // Click
@@ -564,70 +572,33 @@ function MapView({
       // ----------------------------------------------
       // Cleanup event listeners
       // ----------------------------------------------
-
       return () => {
-        currentMap.off(
-          "click",
-          "thermal-points",
-          handleClick
-        );
-
-        currentMap.off(
-          "mouseenter",
-          "thermal-points",
-          handleEnter
-        );
-
-        currentMap.off(
-          "mouseleave",
-          "thermal-points",
-          handleLeave
-        );
+        currentMap.off("click", "thermal-points", handleClick);
+        currentMap.off("mouseenter", "thermal-points", handleEnter);
+        currentMap.off("mouseleave", "thermal-points", handleLeave);
       };
     };
-
-    // ----------------------------------------------
-    // Wait for map style
-    // ----------------------------------------------
 
     if (currentMap.isStyleLoaded()) {
       return draw();
     }
 
-    const handleLoad = () => {
-      draw();
-    };
-
-    currentMap.once(
-      "load",
-      handleLoad
-    );
+    const handleLoad = () => draw();
+    currentMap.once("load", handleLoad);
 
     return () => {
-      currentMap.off(
-        "load",
-        handleLoad
-      );
-
-      if (
-        currentMap.getLayer("thermal-points")
-      ) {
-        currentMap.removeLayer(
-          "thermal-points"
-        );
+      currentMap.off("load", handleLoad);
+      if (currentMap.getLayer("thermal-points-selected")) {
+        currentMap.removeLayer("thermal-points-selected");
       }
-
-      if (
-        currentMap.getSource(
-          "thermal-observations"
-        )
-      ) {
-        currentMap.removeSource(
-          "thermal-observations"
-        );
+      if (currentMap.getLayer("thermal-points")) {
+        currentMap.removeLayer("thermal-points");
+      }
+      if (currentMap.getSource("thermal-observations")) {
+        currentMap.removeSource("thermal-observations");
       }
     };
-  }, [observations, onObservationSelect]);
+  }, [observations, selectedObservation, onObservationSelect]);
 
   return (
   <div className="map-container">
@@ -668,6 +639,19 @@ function MapView({
 
       <div className="legend-note">
         Marker size reflects thermal intensity.
+      </div>
+
+      <div
+        className="legend-note"
+        style={{
+          marginTop: "6px",
+          borderTop: "1px solid rgba(255,255,255,0.1)",
+          paddingTop: "6px",
+          color: "#64748b",
+        }}
+      >
+        Showing events for active region.
+        Zoom out to see adjacent regions.
       </div>
     </div>
   </div>

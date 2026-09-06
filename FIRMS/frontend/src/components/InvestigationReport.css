@@ -130,16 +130,27 @@
     visibility: hidden;
   }
   
+  .investigation-report-overlay,
+  .investigation-report-overlay *,
   .investigation-report-modal,
   .investigation-report-modal * {
     visibility: visible;
   }
   
-  .investigation-report-modal {
+  .investigation-report-overlay {
     position: absolute;
-    left: 0;
     top: 0;
+    left: 0;
+    display: block;
+    background: transparent;
     width: 100%;
+    height: auto;
+    padding: 0;
+    margin: 0;
+  }
+  
+  .investigation-report-modal {
+    position: static;
     background: white !important;
     color: black !important;
     border: none;
@@ -147,6 +158,19 @@
     max-width: none;
     max-height: none;
     overflow: visible;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .report-content {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .report-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   
   .no-print {

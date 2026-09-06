@@ -160,6 +160,15 @@ def clean_record(record: Dict[str, Any]) -> Dict[str, Any]:
     return output
 
 
+# Fields that indicate a baseline is available for this facility.
+BASELINE_FIELDS = [
+    "baseline_mean_frp",
+    "baseline_median_frp",
+    "baseline_p90_frp",
+    "baseline_p95_frp",
+]
+
+
 def safe_float(value: Any) -> Optional[float]:
     """
     Convert a value to float safely.
@@ -201,6 +210,172 @@ def calculate_ratio(
         return None
 
     return num / den
+
+
+# ============================================================
+# EVIDENCE QUALITY
+# ============================================================
+
+def compute_evidence_quality(
+    record: Dict[str, Any],
+    baseline: Dict[str, Any],
+) -> str:
+    """
+    Derive evidence quality: HIGH / MEDIUM / LOW / INSUFFICIENT.
+
+    Inputs are actual data fields only — no invented values.
+    Score components:
+      - Historical depth (previous_active_days / active_days)
+      - Baseline availability
+      - Source classification evidence_strength
+      - Association type (OSM intersection vs nearby)
+      - Persistence pattern
+    """
+
+    score = 0
+
+    # Historical observation depth
+    previous_active_days = safe_float(
+        record.get("previous_active_days")
+    ) or 0.0
+    active_days = safe_float(
+        record.get("active_days")
+    ) or 0.0
+    depth = max(previous_active_days, active_days)
+
+    if depth >= 30:
+        score += 3
+    elif depth >= 15:
+        score += 2
+    elif depth >= 5:
+        score += 1
+
+    # Baseline availability
+    has_baseline = bool(baseline) and any(
+        baseline.get(f) is not None for f in BASELINE_FIELDS
+    )
+    if has_baseline:
+        score += 2
+
+    # Classification evidence_strength from source pipeline
+    evidence_strength = str(
+        record.get("evidence_strength", "")
+    ).upper()
+    if evidence_strength == "HIGH":
+        score += 2
+    elif evidence_strength == "MEDIUM":
+        score += 1
+
+    # Association type quality
+    assoc_type = str(
+        record.get("association_type", "")
+    ).upper()
+    if assoc_type == "OSM_FEATURE_INTERSECTION":
+        score += 2
+    elif assoc_type.startswith("NEARBY_OSM"):
+        score += 1
+
+    # Persistence pattern
+    persistence = str(
+        record.get("persistence_state", "")
+    ).upper()
+    if persistence in ("RECURRING", "PERSISTENT"):
+        score += 1
+
+    if score >= 7:
+        return "HIGH"
+    elif score >= 5:
+        return "MEDIUM"
+    elif score >= 3:
+        return "LOW"
+    else:
+        return "INSUFFICIENT"
+
+
+# ============================================================
+# INVESTIGATION CANDIDATE CLASSIFICATION
+# ============================================================
+
+def is_investigation_candidate(
+    record: Dict[str, Any],
+) -> bool:
+    """
+    Determine if a facility-day record is a genuine investigation candidate.
+
+    Phase B rules (do NOT change behaviour score or thresholds):
+      A. INDUSTRIAL_ASSOCIATED + WATCH/UNUSUAL + sufficient evidence -> YES
+      B. Persistent unmatched source + abnormal/unusual + sufficient evidence -> YES
+      C. UNKNOWN + INSUFFICIENT_HISTORY -> NO
+      D. AGRICULTURAL + NORMAL -> NO
+      E. FOREST_NATURAL + NORMAL -> NO
+      F. INDUSTRIAL_ASSOCIATED + NORMAL -> NO
+      G. UNKNOWN + NORMAL -> NO
+    """
+
+    source_class = str(
+        record.get("source_class", "UNKNOWN")
+    ).upper()
+
+    behavior_state = str(
+        record.get("behavior_state", "NORMAL")
+    ).upper()
+
+    facility_name = str(
+        record.get("facility_name", "")
+    ).upper()
+
+    evidence_strength = str(
+        record.get("evidence_strength", "LOW")
+    ).upper()
+
+    persistence_state = str(
+        record.get("persistence_state", "")
+    ).upper()
+
+    is_unknown_source = (
+        "UNKNOWN" in facility_name
+        or source_class == "UNKNOWN"
+    )
+
+    # Category C: INSUFFICIENT_HISTORY -> NOT candidate (all classes)
+    if behavior_state == "INSUFFICIENT_HISTORY":
+        return False
+
+    # Category D: AGRICULTURAL + NORMAL -> NOT candidate
+    if source_class == "AGRICULTURAL" and behavior_state == "NORMAL":
+        return False
+
+    # Category E: FOREST_NATURAL + NORMAL -> NOT candidate
+    if source_class == "FOREST_NATURAL" and behavior_state == "NORMAL":
+        return False
+
+    # Category F: INDUSTRIAL_ASSOCIATED + NORMAL -> NOT candidate
+    if (
+        source_class == "INDUSTRIAL_ASSOCIATED"
+        and behavior_state == "NORMAL"
+    ):
+        return False
+
+    # Category G: UNKNOWN source + NORMAL -> NOT candidate
+    if is_unknown_source and behavior_state == "NORMAL":
+        return False
+
+    # Category A: INDUSTRIAL_ASSOCIATED + WATCH/UNUSUAL -> candidate
+    if (
+        source_class == "INDUSTRIAL_ASSOCIATED"
+        and behavior_state in ("WATCH", "UNUSUAL")
+    ):
+        return True
+
+    # Category B: Unmatched source + WATCH/UNUSUAL + sufficient evidence
+    if is_unknown_source and behavior_state in ("WATCH", "UNUSUAL"):
+        if evidence_strength in ("MEDIUM", "HIGH") or persistence_state in (
+            "RECURRING",
+            "PERSISTENT",
+        ):
+            return True
+
+    return False
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -815,50 +990,48 @@ def get_thermal_events(
     limit: Optional[int] = None,
     region: str = Query("jamnagar")
 ):
-    """
-    Return thermal observations enriched with:
-
-    - facility baseline
-    - FRP / P90 ratio
-    - FRP / P95 ratio
-    - P90/P95 flags
-    """
-    
-    r_data = region_store.get(region, {})
-    thermal_df = r_data.get("thermal_df", pd.DataFrame())
-    b_lookup = r_data.get("baseline_lookup", {})
-
-    if thermal_df.empty:
-        return {
-            "count": 0,
-            "observations": [],
-        }
-
     records: List[Dict[str, Any]] = []
 
-    dataframe = thermal_df
+    if region.upper() == "ALL":
+        regions_to_process = list(region_store.items())
+    else:
+        if region not in region_store:
+            return {"count": 0, "events": []}
+        regions_to_process = [(region, region_store[region])]
 
-    if limit is not None:
-        if limit < 1:
-            raise HTTPException(
-                status_code=400,
-                detail="limit must be >= 1",
-            )
+    for reg_id, r_data in regions_to_process:
+        thermal_df = r_data.get("thermal_df", pd.DataFrame())
+        b_lookup = r_data.get("baseline_lookup", {})
+        i_lookup = r_data.get("intelligence_lookup", {})
+        
+        if thermal_df.empty:
+            continue
+            
+        dataframe = thermal_df
+        if limit is not None:
+            if limit < 1:
+                raise HTTPException(status_code=400, detail="limit must be >= 1")
+            dataframe = dataframe.head(limit)
 
-        dataframe = dataframe.head(limit)
-
-    for _, row in dataframe.iterrows():
-
-        record = clean_record(
-            row.to_dict()
-        )
-
-        record = attach_baseline(
-            record,
-            b_lookup
-        )
-
-        records.append(record)
+        for _, row in dataframe.iterrows():
+            record = clean_record(row.to_dict())
+            record = attach_baseline(record, b_lookup)
+            
+            facility_name = normalize_facility_name(record.get("facility_name") or record.get("name") or "")
+            if not facility_name:
+                facility_name = "UNKNOWN"
+            acq_date = clean_value(record.get("acq_date") or record.get("event_date") or record.get("date") or "")
+            intel_key = f"{facility_name}|{acq_date}"
+            
+            if intel_key in i_lookup:
+                intel = i_lookup[intel_key]
+                record["investigation_priority"] = intel.get("investigation_priority")
+                record["behavior_state"] = intel.get("behavior_state")
+                record["evidence_quality"] = compute_evidence_quality(record, b_lookup.get(facility_name, {}))
+            
+            # Inject the region ID so the frontend can resolve region-switches
+            record["region"] = reg_id
+            records.append(record)
 
     return {
         "count": len(records),
@@ -944,47 +1117,39 @@ def get_facility_days(
     region: str = Query("jamnagar"),
 ):
     """
-    Return facility-day intelligence records.
+    Return facility-day intelligence records enriched with
+    baseline and spatial behaviour.
     """
     r_data = region_store.get(region, {})
     intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
     b_lookup = r_data.get("baseline_lookup", {})
     s_lookup = r_data.get("spatial_lookup", {})
 
+    if intelligence_df.empty:
+        return {"count": 0, "facility_days": []}
+
+    # Apply optional facility filter
     if facility:
-        normalized = normalize_facility_name(
-            facility
-        )
+        normalized = normalize_facility_name(facility)
 
-        if "facility_name" in dataframe.columns:
-            mask = dataframe[
-                "facility_name"
-            ].apply(
+        if "facility_name" in intelligence_df.columns:
+            mask = intelligence_df["facility_name"].apply(
                 normalize_facility_name
             ) == normalized
-
-        elif "name" in dataframe.columns:
-            mask = dataframe[
-                "name"
-            ].apply(
+        elif "name" in intelligence_df.columns:
+            mask = intelligence_df["name"].apply(
                 normalize_facility_name
             ) == normalized
-
         else:
-            mask = pd.Series(
-                False,
-                index=dataframe.index,
-            )
+            mask = pd.Series(False, index=intelligence_df.index)
 
-        dataframe = dataframe[mask]
+        intelligence_df = intelligence_df[mask]
 
     records = []
 
-    for _, row in dataframe.iterrows():
+    for _, row in intelligence_df.iterrows():
 
-        record = clean_record(
-            row.to_dict()
-        )
+        record = clean_record(row.to_dict())
 
         record = attach_baseline_to_facility_day(
             record,
@@ -1006,19 +1171,45 @@ def get_facility_days(
 
 @app.get("/investigations")
 def get_investigations(region: str = Query("jamnagar")):
-    
+    """
+    Return all facility-day records annotated with:
+      - is_investigation_candidate (bool): whether this is a genuine
+        human-review candidate per Phase B rules.
+      - evidence_quality: HIGH / MEDIUM / LOW / INSUFFICIENT
+
+    The frontend uses is_investigation_candidate to filter the queue.
+    All records are returned so the map can still apply priority coloring.
+    """
+
     r_data = region_store.get(region, {})
     intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
+    thermal_df = r_data.get("thermal_df", pd.DataFrame())
     b_lookup = r_data.get("baseline_lookup", {})
     s_lookup = r_data.get("spatial_lookup", {})
+
+    if intelligence_df.empty:
+        return {"count": 0, "candidate_count": 0, "investigations": []}
+
+    # Build a lookup for representative event_ids (max frp per facility-day)
+    event_id_lookup = {}
+    if not thermal_df.empty:
+        for _, row in thermal_df.iterrows():
+            fname = normalize_facility_name(row.get("name", ""))
+            if not fname:
+                fname = "UNKNOWN"
+            date = clean_value(row.get("event_date", row.get("acq_date", "")))
+            if not date:
+                continue
+            key = f"{fname}|{date}"
+            frp = float(row.get("max_frp", 0) or 0)
+            if key not in event_id_lookup or frp > event_id_lookup[key]["frp"]:
+                event_id_lookup[key] = {"event_id": row.get("event_id"), "frp": frp}
 
     records = []
 
     for _, row in intelligence_df.iterrows():
 
-        record = clean_record(
-            row.to_dict()
-        )
+        record = clean_record(row.to_dict())
 
         record = attach_baseline_to_facility_day(
             record,
@@ -1026,10 +1217,38 @@ def get_investigations(region: str = Query("jamnagar")):
             s_lookup,
         )
 
+        # Resolve baseline for evidence quality calculation
+        facility_key = normalize_facility_name(
+            record.get("facility_name")
+            or record.get("name")
+            or ""
+        )
+        baseline = b_lookup.get(facility_key, {})
+
+        record["evidence_quality"] = compute_evidence_quality(
+            record, baseline
+        )
+        record["is_investigation_candidate"] = is_investigation_candidate(
+            record
+        )
+        
+        lookup_key = f"{facility_key}|{clean_value(record.get('acq_date', ''))}"
+        if lookup_key in event_id_lookup:
+            record["event_id"] = event_id_lookup[lookup_key]["event_id"]
+        
+        # DEBUG
+        if "ESSAR" in facility_key:
+            print(f"DEBUG: lookup_key={lookup_key}, found={lookup_key in event_id_lookup}")
+
         records.append(record)
+
+    candidate_count = sum(
+        1 for r in records if r.get("is_investigation_candidate")
+    )
 
     return {
         "count": len(records),
+        "candidate_count": candidate_count,
         "investigations": records,
     }
 
@@ -1147,20 +1366,42 @@ def get_facilities(region: str = Query("jamnagar")):
 
 @app.get("/summary")
 def summary(region: str = Query("jamnagar")):
+    """
+    Regional summary dashboard counts.
+
+    Distinguishes each analytical layer separately:
+      raw_observations  — raw FIRMS detections (thermal_event_observations.csv)
+      thermal_events    — clustered/deduped events (thermal_source_classification_v2.csv)
+      facility_days     — facility-day intelligence records
+      facilities        — unique facilities with baselines
+      investigation_candidates — genuine human-review candidates (Phase B rules)
+      unmatched_sources — persistent unmatched thermal sources
+    """
     r_data = region_store.get(region, {})
     intelligence_df = r_data.get("intelligence_df", pd.DataFrame())
     thermal_df = r_data.get("thermal_df", pd.DataFrame())
+    raw_df = r_data.get("raw_observations_df", pd.DataFrame())
+    unknown_sources_df = r_data.get("unknown_sources_df", pd.DataFrame())
     baseline_lookup = r_data.get("baseline_lookup", {})
 
-    high_priority = 0
-    if not intelligence_df.empty and "investigation_priority" in intelligence_df.columns:
-        high_priority = len(intelligence_df[intelligence_df["investigation_priority"].astype(str).str.upper() == "HIGH"])
-    
+    # Count genuine investigation candidates using Phase B rules
+    candidate_count = 0
+    if not intelligence_df.empty:
+        for _, row in intelligence_df.iterrows():
+            if is_investigation_candidate(row.to_dict()):
+                candidate_count += 1
+
     return {
-        "thermal_observations": len(thermal_df) if not thermal_df.empty else 0,
+        # Separate analytical layers
+        "raw_observations": len(raw_df) if not raw_df.empty else 0,
+        "thermal_events": len(thermal_df) if not thermal_df.empty else 0,
         "facility_days": len(intelligence_df) if not intelligence_df.empty else 0,
         "facilities": len(baseline_lookup),
-        "high_priority": high_priority
+        "investigation_candidates": candidate_count,
+        "unmatched_sources": len(unknown_sources_df) if not unknown_sources_df.empty else 0,
+        # Legacy field kept for backward compat
+        "thermal_observations": len(thermal_df) if not thermal_df.empty else 0,
+        "high_priority": 0,  # No HIGH priority cases in current data
     }
 
 
@@ -1170,15 +1411,24 @@ def summary(region: str = Query("jamnagar")):
 
 @app.get("/health")
 def health():
+    """Health check using region_store (correct scope)."""
+
+    regions_loaded = list(region_store.keys())
+    total_thermal = sum(
+        len(r_data.get("thermal_df", pd.DataFrame()))
+        for r_data in region_store.values()
+    )
+    total_facilities = sum(
+        len(r_data.get("baseline_lookup", {}))
+        for r_data in region_store.values()
+    )
 
     return {
         "status": "ok",
-        "thermal_data_loaded": not thermal_df.empty,
-        "intelligence_data_loaded": not intelligence_df.empty,
-        "baseline_data_loaded": not baseline_df.empty,
-        "baseline_facilities": len(
-            baseline_lookup
-        ),
+        "regions_loaded": regions_loaded,
+        "total_thermal_events_all_regions": total_thermal,
+        "total_facilities_all_regions": total_facilities,
+        "data_loaded": len(regions_loaded) > 0,
     }
 
 

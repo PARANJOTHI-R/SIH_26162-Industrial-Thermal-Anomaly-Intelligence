@@ -21,6 +21,7 @@ function firstNumber(...values) {
 
 function InvestigationPanel({
   observation,
+  region,
   onClose,
 }) {
   const [facilityHistory, setFacilityHistory] =
@@ -60,8 +61,8 @@ function InvestigationPanel({
       try {
         setHistoryLoading(true);
 
-        const response = await fetch(
-          `${API_BASE}/facility-days`
+    const response = await fetch(
+          `${API_BASE}/facility-days?region=${encodeURIComponent(region || "jamnagar")}`
         );
 
         if (!response.ok) {
@@ -259,6 +260,10 @@ function InvestigationPanel({
   const activeDays = firstNumber(
     observation?.active_days
   );
+
+  const evidenceQuality =
+    observation?.evidence_quality ??
+    "—";
 
   // --------------------------------------------------------
   // Classification
@@ -537,7 +542,7 @@ function InvestigationPanel({
 
         isSelected:
           item.date ===
-          observation?.acq_date,
+          (observation?.acq_date ?? observation?.date),
 
         key: `${item.date}-${index}`,
       })
@@ -567,7 +572,7 @@ function InvestigationPanel({
       <div className="investigation-panel-header">
         <div>
           <div className="investigation-eyebrow">
-            {priority === "HIGH"
+            {(priority === "HIGH" || observation?.is_investigation_candidate)
               ? "INVESTIGATION CANDIDATE"
               : "THERMAL OBSERVATION"}
           </div>
@@ -655,7 +660,7 @@ function InvestigationPanel({
             label="SATELLITE"
             value={
               observation.satellite ??
-              "—"
+              "Not available at event level"
             }
           />
 
@@ -669,7 +674,7 @@ function InvestigationPanel({
           />
 
           <Metric
-            label="DAILY OBSERVED FRP SUM"
+            label="SUM OF OBSERVED FRP VALUES"
             value={
               totalFrp !== null
                 ? `${totalFrp.toFixed(
@@ -708,7 +713,7 @@ function InvestigationPanel({
         </div>
 
         <div className="classification-meta">
-          Evidence:{" "}
+          Contextual Evidence Strength:{" "}
           {evidenceStrength}
         </div>
 
@@ -718,6 +723,59 @@ function InvestigationPanel({
             {observation.worldcover_context} (Secondary evidence; OSM industrial association takes precedence)
           </div>
         )}
+      </div>
+
+      {/* EVIDENCE QUALITY */}
+      <div className="investigation-section">
+        <div className="investigation-section-title">
+          EVIDENCE QUALITY
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            marginBottom: "8px",
+          }}
+        >
+          <div
+            style={{
+              fontWeight: "bold",
+              fontSize: "14px",
+              color:
+                evidenceQuality === "HIGH"
+                  ? "#4ade80"
+                  : evidenceQuality === "MEDIUM"
+                  ? "#fbbf24"
+                  : evidenceQuality === "LOW"
+                  ? "#f87171"
+                  : "#64748b",
+            }}
+          >
+            {evidenceQuality}
+          </div>
+          <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+            {evidenceQuality === "HIGH"
+              ? "Multiple strong evidence sources support this assessment."
+              : evidenceQuality === "MEDIUM"
+              ? "Moderate evidence available. Assessment is reasonably reliable."
+              : evidenceQuality === "LOW"
+              ? "Limited evidence. Assessment may be incomplete."
+              : "Insufficient evidence for a reliable assessment."}
+          </div>
+        </div>
+
+        <div
+          style={{
+            fontSize: "9px",
+            color: "#475569",
+            fontStyle: "italic",
+          }}
+        >
+          Evidence quality is separate from behaviour score and investigation priority.
+          It reflects the volume and quality of supporting data, not the severity of the event.
+        </div>
       </div>
 
       {/* FACILITY THERMAL FINGERPRINT */}
@@ -788,7 +846,7 @@ function InvestigationPanel({
                     activityFrequency *
                     100
                   ).toFixed(1)}%`
-                : "—"
+                : "Not available"
             }
             detail={
               activeDays !== null
@@ -810,15 +868,22 @@ function InvestigationPanel({
           <strong>
             {previousActiveDays === null
               ? "UNKNOWN"
-              : previousActiveDays >=
-                30
+              : previousActiveDays >= 30
               ? "HIGH"
-              : previousActiveDays >=
-                10
+              : previousActiveDays >= 10
               ? "MEDIUM"
               : "LOW"}
           </strong>
         </div>
+
+        {activeDays !== null && (
+          <div style={{ fontSize: "9px", color: "#64748b", marginTop: "6px" }}>
+            Total historical active days: {activeDays}
+            {previousActiveDays !== null && previousActiveDays !== activeDays && (
+              <> &nbsp;·&nbsp; Active days before this event: {previousActiveDays}</>
+            )}
+          </div>
+        )}
       </div>
 
       {/* DEVIATION ANALYSIS */}
@@ -910,10 +975,12 @@ function InvestigationPanel({
             value={observationCount !== null ? observationCount : "—"}
             highlight={detectionDeviationLabel === "HIGH"}
           />
-          <Metric
-            label="HISTORICAL P90 DETECTIONS"
-            value={detectionBaseline && detectionBaseline.p90 > 0 ? detectionBaseline.p90.toFixed(1) : "—"}
-          />
+          {detectionBaseline && detectionBaseline.p90 > 0 && (
+            <Metric
+              label="HISTORICAL P90 DETECTIONS"
+              value={detectionBaseline.p90.toFixed(1)}
+            />
+          )}
           <Metric
             label="CURRENT BEHAVIOUR"
             value={behavior}
@@ -986,7 +1053,7 @@ function InvestigationPanel({
             value={
               previousActiveDays !==
               null
-                ? previousActiveDays
+                ? `${previousActiveDays} (before this event)`
                 : "—"
             }
           />
@@ -1000,7 +1067,7 @@ function InvestigationPanel({
                     activityFrequency *
                     100
                   ).toFixed(1)}%`
-                : "—"
+                : "Not available"
             }
           />
 
@@ -1015,16 +1082,36 @@ function InvestigationPanel({
         <div style={{ fontSize: '9px', color: '#94a3b8', marginBottom: '12px', fontStyle: 'italic' }}>
           * FIRMS coordinates represent satellite thermal observations and are not exact fire boundaries.
         </div>
-        
+
+        {/* Plain-language spatial summary */}
+        <div
+          style={{
+            padding: "10px 12px",
+            background: "rgba(100,116,139,0.08)",
+            border: "1px solid rgba(100,116,139,0.2)",
+            borderRadius: "6px",
+            marginBottom: "14px",
+            fontSize: "11px",
+            color: "#cbd5e1",
+            lineHeight: "1.5",
+          }}
+        >
+          {spatialState === "NORMAL"
+            ? "Current thermal footprint remains within the historical facility activity envelope."
+            : spatialState === "WATCH"
+            ? "Current thermal footprint shows a minor deviation from the historical facility activity envelope."
+            : spatialState === "UNUSUAL"
+            ? "Current thermal footprint has expanded or shifted significantly beyond the historical facility activity envelope."
+            : spatialState === "INSUFFICIENT_HISTORY"
+            ? "Insufficient historical data to assess spatial behaviour for this source."
+            : "Spatial behaviour data not available for this source."}
+        </div>
+
         <div className="investigation-grid">
           <Metric
             label="SPATIAL STATE"
             value={spatialState}
             highlight={spatialState === 'UNUSUAL'}
-          />
-          <Metric
-            label="CENTROID SHIFT"
-            value={centroidShift !== null ? `${centroidShift.toFixed(2)} km` : "—"}
           />
           <Metric
             label="HISTORICAL RADIUS"
@@ -1036,14 +1123,29 @@ function InvestigationPanel({
           />
           <Metric
             label="EXPANSION RATIO"
-            value={spatialExpansion !== null ? `${spatialExpansion.toFixed(1)}x` : "—"}
+            value={spatialExpansion !== null ? `${spatialExpansion.toFixed(1)}×` : "—"}
             highlight={spatialExpansion !== null && spatialExpansion >= 2}
           />
-          <Metric
-            label="SPATIAL SCORE"
-            value={spatialScore !== null ? spatialScore.toFixed(1) : "—"}
-          />
         </div>
+
+        {/* Advanced metrics — centroid shift and score */}
+        {centroidShift !== null && (
+          <details style={{ marginTop: "8px" }}>
+            <summary style={{ fontSize: "10px", color: "#64748b", cursor: "pointer" }}>
+              Advanced spatial metrics
+            </summary>
+            <div className="investigation-grid" style={{ marginTop: "8px" }}>
+              <Metric
+                label="CENTROID SHIFT"
+                value={`${centroidShift.toFixed(2)} km`}
+              />
+              <Metric
+                label="SPATIAL SCORE"
+                value={spatialScore !== null ? spatialScore.toFixed(1) : "—"}
+              />
+            </div>
+          </details>
+        )}
       </div>
 
       {/* HISTORY CHART */}
@@ -1058,7 +1160,7 @@ function InvestigationPanel({
           </div>
         ) : history.length === 0 ? (
           <div className="history-empty">
-            Historical facility data unavailable.
+            No prior activity recorded for this source.
           </div>
         ) : (
           <>
@@ -1197,6 +1299,18 @@ function InvestigationPanel({
               : priority === "HIGH"
               ? "Abnormal thermal behaviour relative to the available historical baseline. Suitable for human investigation."
               : "Thermal activity associated with the selected source. Review historical behaviour and contextual evidence.";
+            
+            const isUnknownSource = 
+              !observation.facility_name || 
+              String(observation.facility_name).toUpperCase().includes("UNKNOWN") || 
+              String(observation.facility_name).toUpperCase().includes("UNMAPPED");
+            
+            if (isUnknownSource) {
+              const persist = observation.persistence_state === 'RECURRING' || observation.persistence_state === 'PERSISTENT' ? 'Recurring ' : '';
+              const behav = observation.behavior_state?.toLowerCase() ?? 'unusual';
+              return `${persist}unmatched thermal activity shows ${behav} behaviour relative to its historical baseline. Suitable for human verification.`;
+            }
+            
             return raw.replace(/not evidence of an unregistered industry/gi, "Candidate industrial association");
           })()}
         </p>
